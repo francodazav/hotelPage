@@ -18,13 +18,14 @@ export class hotelRepository {
     userName,
     userLastname,
     rate,
+    capacity,
   }) {
     try {
       await validateHotel.validateName(hotelName);
       await validateHotel.validatePrice(price);
 
       const result = await db.execute(
-        "INSERT INTO hoteles(name,rate,price,direction,country,city,description,photos,services,user_id,user_name,user_lastname) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO hoteles(name,rate,price,direction,country,city,description,photos,services,capacity,user_id,user_name,user_lastname) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [
           hotelName,
           rate,
@@ -38,6 +39,7 @@ export class hotelRepository {
           userId,
           userName,
           userLastname,
+          capacity,
         ]
       );
       return result;
@@ -121,11 +123,12 @@ export class hotelRepository {
     userLastname,
     city,
     country,
+    capacity,
   }) {
     try {
       await validateHotel.validateId(hotelId);
       const result = await db.execute(
-        "UPDATE hoteles SET name = ? , rate = ? , price = ? , description = ?, direction = ?, country = ?, city = ?, photos = ? , services = ?,user_id = ?,user_name = ?, user_lastname =  ?  WHERE id = ?",
+        "UPDATE hoteles SET name = ? , rate = ? , price = ? , description = ?, direction = ?, country = ?, city = ?, photos = ? , services = ?,capacity = ?,user_id = ?,user_name = ?, user_lastname =  ?  WHERE id = ?",
         [
           hotelName,
           rate,
@@ -136,6 +139,7 @@ export class hotelRepository {
           city,
           photos,
           services,
+          capacity,
           userId,
           userName,
           userLastname,
@@ -146,6 +150,25 @@ export class hotelRepository {
     } catch (error) {
       throw new Error(error);
     }
+  }
+  static async changeDisponibility({ hotelId, fechaIn, fechaOut, reason }) {
+    await db.execute(
+      "INSERT INTO disponibility(hotel_id,fecha_in,fecha_out,reason) VALUES(?,?,?,?)",
+      [hotelId, fechaIn, fechaOut, reason]
+    );
+    return {
+      hotelId,
+      fechaIn,
+      fechaOut,
+      reason,
+    };
+  }
+  static async modifyDisponibility({ hotelId, fechaIn, fechaOut, id }) {
+    await db.execute(
+      "UPDATE disponibility SET hotel_id = ? , fecha_in = ?, fecha_out = ? WHERE id = ?",
+      [hotelId, fechaIn, fechaOut, id]
+    );
+    return hotelId, fechaIn, fechaOut;
   }
 }
 

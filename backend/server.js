@@ -1,15 +1,14 @@
 import express from "express";
-import { createClient } from "@libsql/client";
 import { infoDb, SECRET_KEY } from "./const/const.js";
 import { createTables } from "./tables/tables.js";
 import { userRepository } from "./repos/userRepository.js";
 import cookieParser from "cookie-parser";
 import pkg from "jsonwebtoken";
 import { hotelRepository } from "./repos/hotelRepository.js";
+import { rsvRepository } from "./repos/rsvRepository.js";
 const port = process.env.PORT || 3000;
 
 const { verify, sign } = pkg;
-const db = createClient(infoDb);
 createTables();
 const app = express();
 app.disable("x-powered-by");
@@ -88,6 +87,7 @@ app.post("/upload-hotel", async (req, res) => {
     services,
     country,
     city,
+    capacity,
   } = req.body;
   try {
     const result = await hotelRepository.uploadHotel({
@@ -104,6 +104,7 @@ app.post("/upload-hotel", async (req, res) => {
       services,
       country,
       city,
+      capacity,
     });
     res.send(result);
   } catch (error) {
@@ -181,6 +182,7 @@ app.patch("/modify-hotel", async (req, res) => {
     services,
     city,
     country,
+    capacity,
   } = req.body;
   try {
     const result = await hotelRepository.patchHotel({
@@ -198,10 +200,107 @@ app.patch("/modify-hotel", async (req, res) => {
       userId: id,
       city,
       country,
+      capacity,
     });
     res.send(result);
   } catch (error) {
     throw new Error(error);
+  }
+});
+app.post("/disponibility-hotel", async (req, res) => {
+  const { hotelId, fechaIn, fechaOut, reason } = req.body;
+
+  try {
+    const result = await hotelRepository.changeDisponibility({
+      hotelId,
+      fechaIn,
+      fechaOut,
+      reason,
+    });
+    res.send(result);
+  } catch (error) {
+    throw new Error("Problem changing the disponibility of your hotel");
+  }
+});
+app.patch("/disponibility-hotel", (req, res) => {
+  const { id, hotelId, fechaIn, fechaOut, reason } = req.body;
+  try {
+    const result = hotelRepository.modifyDisponibility({
+      hotelId,
+      fechaIn,
+      fechaOut,
+      id,
+    });
+    res.send(result);
+  } catch (error) {
+    throw new Error("Problem modifying your disponibility");
+  }
+});
+app.post("/reservation", async (req, res) => {
+  const { id, name, lastname, username, email, type } = req.session.user;
+  if (type === 1)
+    throw new Error(
+      "You are a host, you can't make a reservation. Please create an account as costumer"
+    );
+  const { hotelId, fechaIn, fechaOut } = req.body;
+
+  try {
+    const result = await rsvRepository.createRsv({
+      userId: id,
+      name,
+      lastname,
+      email,
+      hotelId,
+      fechaIn,
+      fechaOut,
+      username,
+    });
+    await rsvRepository.asignDisponibilityRsv({
+      hotelId,
+      fechaIn,
+      fechaOut,
+      reason: "reserved",
+      rsvConfirmation: result.rsvConfirmation,
+    });
+    res.status(200).send(res);
+  } catch (error) {
+    throw new Error(error);
+  }
+});
+app.get("/reservation", async (req, res) => {
+  const { id } = req.session.user;
+  try {
+    const result = await rsvRepository.getReservation(id);
+    res.send(result);
+  } catch (error) {
+    throw new Error("You don't have any reservations");
+  }
+});
+app.patch("/reservation", async (req, res) => {
+  const { id, name, lastname, username, email, type } = req.session.user;
+  const { hotelId, fechaIn, fechaOut, rsvId, rsvConfirmation } = req.body;
+  try {
+    const result = await rsvRepository.patchRsv({
+      userId: id,
+      name,
+      lastname,
+      username,
+      email,
+      hotelId,
+      fechaIn,
+      fechaOut,
+      rsvId,
+    });
+    await rsvRepository.patchDisponibilityRsv({
+      hotelId,
+      fechaIn,
+      fechaOut,
+      rsvConfirmation,
+      newRsvConfirmation: result.newRsvConfirmation,
+    });
+    res.send(result);
+  } catch (error) {
+    throw new Error("Error updating your reservation");
   }
 });
 app.listen(port, () => {
