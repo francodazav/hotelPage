@@ -142,6 +142,17 @@ export class rsvRepository {
       throw new Error(error);
     }
   }
+  static async deleteRsv(rsvConfirmation) {
+    await db.execute("DELETE FROM reservations WHERE rsv_confirm = ?", [
+      rsvConfirmation,
+    ]);
+    return { message: "Reservation delete it correctly" };
+  }
+  static async deleteDisponibility(rsvConfirmation) {
+    await db.execute("DELETE FROM disponibility WHERE rsv_confirm = ?", [
+      rsvConfirmation,
+    ]);
+  }
 }
 
 export class rsvValidation {

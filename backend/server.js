@@ -29,7 +29,7 @@ app.use((req, res, next) => {
 
 app.get("/all-users", async (req, res) => {
   const result = await userRepository.getUsers();
-  res.send(result.rows);
+  res.status(200).send(result.rows);
 });
 
 app.post("/sign-up", async (req, res) => {
@@ -63,6 +63,7 @@ app.post("/login", async (req, res) => {
       sameSite: "strict", //solo se usa dentro del mismo dominio
       maxAge: 60 * 60 * 1000, // 1 hour
     })
+    .status(200)
     .send(publicUser, token);
 });
 
@@ -106,7 +107,7 @@ app.post("/upload-hotel", async (req, res) => {
       city,
       capacity,
     });
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
     throw new Error("Problem uploading your hotel");
   }
@@ -115,59 +116,104 @@ app.post("/upload-hotel", async (req, res) => {
 app.get("/all-hotels", async (req, res) => {
   try {
     const result = await hotelRepository.getAllHotels();
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
     throw new Error("Trouble getting all hotels");
   }
 });
-app.get("/hotel-id", async (req, res) => {
+app.get("/hotel/:id", async (req, res) => {
   try {
-    const { id } = req.body;
+    const { id } = req.params;
     const result = await hotelRepository.getHotelById(id);
-    res.send(result);
+    if (result === null) {
+      res
+        .status(400)
+        .send({ message: "Not hotels found with that specifications" });
+    } else {
+      res.status(200).send(result);
+    }
   } catch (error) {
     throw new Error("Couldn't find an hotel with that id");
   }
 });
-app.get("/hotel-name", async (req, res) => {
+
+app.get("/hoteles", async (req, res) => {
+  const { lowPrice, highPrice, rate, city, country, name } = req.query;
+  console.log("sad");
+  let filters = {};
+  if (lowPrice & highPrice) {
+    filters.lowPrice = lowPrice;
+    filters.highPrice = highPrice;
+  }
+  if (rate) {
+    filters.rate = rate;
+  }
+  if (city) {
+    filters.city = city;
+  }
+  if (country) {
+    filters.country = country;
+  }
+  if (name) {
+    filters.name = name;
+  }
   try {
-    const { name } = req.body;
-    const result = await hotelRepository.getHotelByName(name);
-    res.send(result);
+    const result = await hotelRepository.searchHotel(filters);
+    if (result.length > 0) {
+      res.status(200).send(result);
+    } else {
+      res.status(400).send({ message: "Any hotels was found" });
+    }
   } catch (error) {
-    throw new Error("Hotel not found");
+    // res.status(500).send({ message: "Problem getting the hotels" });
+    throw new Error(error);
   }
 });
-app.get("/hotel-location", async (req, res) => {
-  try {
-    const { location } = req.body;
-    const result = await hotelRepository.getHotelByLocation(location);
-    res.send(result);
-  } catch (error) {
-    throw new Error("Any hotel were find at that location");
-  }
-});
-app.get("/hotel-price", async (req, res) => {
-  try {
-    const { minPrice, maxPrice } = req.body;
-    const result = await hotelRepository.getHotelByPrice({
-      minPrice,
-      maxPrice,
-    });
-    res.send(result);
-  } catch (error) {
-    throw new Error("We don't have an hotel in that range of price");
-  }
-});
-app.delete("/delete", async (req, res) => {
-  const { id } = req.body;
+// app.get("/hotel-price", async (req, res) => {
+//   try {
+//     console.log(req.query);
+//     const { minPrice, maxPrice } = req.query;
+//     console.log(minPrice, maxPrice);
+//     const result = await hotelRepository.getHotelByPrice({
+//       minPrice,
+//       maxPrice,
+//     });
+//     if (result && result.length > 0) {
+//       res.status(200).send(result);
+//     } else {
+//       res.status(404).send({ message: "Not hotels found in this range" });
+//     }
+//   } catch (error) {
+//     throw new Error(error);
+//   }
+// });
+// app.get("/hotel/rate", async (req, res) => {
+//   const { lowRate, highRate } = req.query;
+//   try {
+//     const result = await hotelRepository.getHotelRate({ lowRate, highRate });
+//     if (result === null) {
+//       res
+//         .status(400)
+//         .send({ message: "Not hotels found with that specifications" });
+//     } else {
+//       res.status(200).send(result);
+//     }
+//     if (lowRate <= 0 || highRate > 5) {
+//       res.status(400).send({ message: "Invalid range" });
+//     }
+//   } catch (error) {
+//     res.status(500).send({ message: "Problem fetching the hotels" });
+//   }
+// });
+app.delete("/delete/:id", async (req, res) => {
+  const { id } = req.params;
   const result = await hotelRepository.deleteHotel(id);
-  res.send(result);
+  res.status(200).send(result);
 });
 app.delete("/delete-all", async (req, res) => {
   const { id } = req.session.user;
   const result = await hotelRepository.deleteAllHotelsUser(id);
-  res.send(result);
+  res.status(200).send(result);
 });
 app.patch("/modify-hotel", async (req, res) => {
   const { name, lastname, id } = req.session.user;
@@ -202,7 +248,7 @@ app.patch("/modify-hotel", async (req, res) => {
       country,
       capacity,
     });
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
     throw new Error(error);
   }
@@ -217,23 +263,23 @@ app.post("/disponibility-hotel", async (req, res) => {
       fechaOut,
       reason,
     });
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
     throw new Error("Problem changing the disponibility of your hotel");
   }
 });
-app.patch("/disponibility-hotel", (req, res) => {
-  const { id, hotelId, fechaIn, fechaOut, reason } = req.body;
+app.patch("/disponibility-hotel", async (req, res) => {
+  const { id, hotelId, fechaIn, fechaOut } = req.body;
   try {
-    const result = hotelRepository.modifyDisponibility({
+    const result = await hotelRepository.modifyDisponibility({
       hotelId,
       fechaIn,
       fechaOut,
       id,
     });
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
-    throw new Error("Problem modifying your disponibility");
+    throw new Error(error);
   }
 });
 app.post("/reservation", async (req, res) => {
@@ -271,7 +317,7 @@ app.get("/reservation", async (req, res) => {
   const { id } = req.session.user;
   try {
     const result = await rsvRepository.getReservation(id);
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
     throw new Error("You don't have any reservations");
   }
@@ -298,11 +344,78 @@ app.patch("/reservation", async (req, res) => {
       rsvConfirmation,
       newRsvConfirmation: result.newRsvConfirmation,
     });
-    res.send(result);
+    res.status(200).send(result);
   } catch (error) {
     throw new Error("Error updating your reservation");
   }
 });
+app.delete("/reservation/:rsvConfirmation", async (req, res) => {
+  const { rsvConfirmation } = req.params;
+  try {
+    const result = await rsvRepository.deleteRsv(rsvConfirmation);
+    await rsvRepository.deleteDisponibility(rsvConfirmation);
+    res.status(200).send(result);
+  } catch (error) {
+    throw new Error("Problem deleting your reservation");
+  }
+});
+app.delete("/disponibility-hotel", async (req, res) => {
+  const { id } = req.body;
+  try {
+    const result = await hotelRepository.deleteDisponibility(id);
+    res.status(200).send(result);
+  } catch (error) {
+    throw new Error(
+      "Some problem has occoured and we can't change the disponibility"
+    );
+  }
+});
+app.get("/disponibility/:hotelId", async (req, res) => {
+  const { hotelId } = req.params;
+  try {
+    const result = await hotelRepository.getDisponibility(hotelId);
+    if (result === null) {
+      res
+        .status(400)
+        .send({ message: "Not hotels found with that specifications" });
+    } else {
+      res.status(200).send(result);
+    }
+  } catch (error) {
+    res.status(401).send({ message: error });
+  }
+});
+app.get("/hotel/search/disponibility", async (req, res) => {
+  const { minPrice, maxPrice, fechaIn, fechaOut, country, city, name } =
+    req.query;
+  let filters = {};
+  if (minPrice) filters.minPrice = minPrice;
+  if (maxPrice) filters.maxPrice = maxPrice;
+  if (fechaIn && fechaOut) {
+    filters.fechaIn = fechaIn;
+    filters.fechaOut = fechaOut;
+  }
+  if (country) {
+    const countrySpaces = country.replace("-", " ");
+    filters.country = countrySpaces;
+  }
+  if (name) {
+    filters.name = name;
+  }
+  if (city) filters.city = city;
+  console.log("AS");
+  try {
+    const result = await hotelRepository.searchHotelsDisponibility(filters);
+    if (result.length > 0) {
+      res.status(200).send(result);
+    } else {
+      res.status(400).send({ message: "Any hotel was found" });
+    }
+  } catch (error) {
+    throw new Error(error);
+  }
+});
+
 app.listen(port, () => {
   console.log(`running in port ${port}`);
 });
