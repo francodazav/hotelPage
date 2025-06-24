@@ -1,11 +1,19 @@
 import express from "express";
-import { infoDb, SECRET_KEY } from "./const/const.js";
+import { SECRET_KEY } from "./const/const.js";
 import { createTables } from "./tables/tables.js";
 import { userRepository } from "./repos/userRepository.js";
 import cookieParser from "cookie-parser";
 import pkg from "jsonwebtoken";
 import { hotelRepository } from "./repos/hotelRepository.js";
 import { rsvRepository } from "./repos/rsvRepository.js";
+import { paymentRepository } from "./repos/paymentRepository.js";
+import {
+  validateDisponibilitySchema,
+  validateHotelsSchema,
+  validateReservationSchema,
+  validateUserSchema,
+} from "./schemas/schemas.js";
+import { corsMiddleware } from "./cors/cors.js";
 const port = process.env.PORT || 3000;
 
 const { verify, sign } = pkg;
@@ -14,15 +22,24 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json());
 app.use(cookieParser());
+app.use(corsMiddleware());
 app.use((req, res, next) => {
   const token = req.cookies.access_token;
-  let data = null;
   req.session = { user: null };
+  if (!token) {
+    return next();
+  }
   try {
-    data = verify(token, SECRET_KEY);
+    const data = verify(token, SECRET_KEY);
     req.session.user = data;
   } catch (error) {
+    console.warn("Invalid or expired token detected:", error.message);
     req.session.user = null;
+    res.clearCookie("access_token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
   }
   next();
 });
@@ -34,7 +51,10 @@ app.get("/all-users", async (req, res) => {
 
 app.post("/sign-up", async (req, res) => {
   try {
-    const { username, name, lastname, email, password, type } = req.body;
+    const data = validateUserSchema(req.body);
+    if (!data.success) res.status(400).send({ message: "Invalid data" });
+    const { username, name, lastname, email, password, type } = data.data;
+
     const result = await userRepository.registerUser({
       username,
       name,
@@ -44,27 +64,35 @@ app.post("/sign-up", async (req, res) => {
       type,
     });
     res.send(result.rows[0]);
-  } catch (error) {}
+  } catch (error) {
+    res.status(400).send({ message: "Username or email already exists" });
+  }
 });
 
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
-  const publicUser = await userRepository.loginUser({
-    username,
-    password,
-  });
-  const token = sign(publicUser, SECRET_KEY, {
-    expiresIn: "1h",
-  });
-  res
-    .cookie("access_token", token, {
-      httpOnly: true, //solo la puedo usar en el servidor
-      secure: process.env.NODE_ENV === "production", //Solo puede acceder en https
-      sameSite: "strict", //solo se usa dentro del mismo dominio
-      maxAge: 60 * 60 * 1000, // 1 hour
-    })
-    .status(200)
-    .send(publicUser, token);
+  try {
+    const publicUser = await userRepository.loginUser({
+      username,
+      password,
+    });
+    if (publicUser.message)
+      return res.status(401).send({ message: "Invalid username or password" });
+    const token = sign(publicUser, SECRET_KEY, {
+      expiresIn: "1h",
+    });
+    res
+      .cookie("access_token", token, {
+        httpOnly: true, //solo la puedo usar en el servidor
+        secure: process.env.NODE_ENV === "production", //Solo puede acceder en https
+        sameSite: "strict", //solo se usa dentro del mismo dominio
+        maxAge: 60 * 60 * 1000, // 1 hour
+      })
+      .status(200)
+      .send(publicUser, token);
+  } catch (error) {
+    res.status(400).send({ message: "Invalid username or password" });
+  }
 });
 
 app.get("/logout", (req, res) => {
@@ -76,8 +104,18 @@ app.get("/logout", (req, res) => {
   res.status(200).send("user logout successfully");
 });
 app.post("/upload-hotel", async (req, res) => {
-  if (!req.session.user) throw new Error("You must login to upload an hotel");
-  const { id, name, lastname, username } = req.session.user;
+  if (!req.session.user)
+    res.status(401).send("You must be logged in to upload a hotel");
+  const { id, name, lastname, username, type } = req.session.user;
+  if (type === 2)
+    res
+      .status(402)
+      .send(
+        "You are not authorize to upload a hotel, please contact the admin"
+      );
+  const data = validateHotelsSchema(req.body);
+  if (data.success === false)
+    return res.status(400).send({ message: "Invalid data" });
   const {
     hotelName,
     rate,
@@ -89,7 +127,7 @@ app.post("/upload-hotel", async (req, res) => {
     country,
     city,
     capacity,
-  } = req.body;
+  } = data.data;
   try {
     const result = await hotelRepository.uploadHotel({
       userId: id,
@@ -109,21 +147,25 @@ app.post("/upload-hotel", async (req, res) => {
     });
     res.status(200).send(result);
   } catch (error) {
-    throw new Error("Problem uploading your hotel");
+    throw new Error(error);
+    // res.status(500).send({
+    //   message: "Problem uploading the hotel, please try again later.",
+    // });
   }
-  res.send(user);
 });
 app.get("/all-hotels", async (req, res) => {
   try {
     const result = await hotelRepository.getAllHotels();
     res.status(200).send(result);
   } catch (error) {
-    throw new Error("Trouble getting all hotels");
+    res.status(444).send("Problem fetching all the hotels");
   }
 });
 app.get("/hotel/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    if (isNaN(id) || parseInt(id) <= 0)
+      return res.status(400).send({ message: "Invalid hotel ID" });
     const result = await hotelRepository.getHotelById(id);
     if (result === null) {
       res
@@ -133,90 +175,100 @@ app.get("/hotel/:id", async (req, res) => {
       res.status(200).send(result);
     }
   } catch (error) {
-    throw new Error("Couldn't find an hotel with that id");
+    res.status(404).send("Hotel not found");
+  }
+});
+app.get("/hotel/name/:name", async (req, res) => {
+  const { name } = req.params;
+  if (name.length === 0)
+    return res.status(400).send({ message: "Hotel name cannot be empty" });
+  try {
+    const result = await hotelRepository.getHotelByName(name);
+    if (result.length > 0) {
+      res.status(200).send(result);
+    } else {
+      res
+        .status(404)
+        .send({ message: "Could'nt find any hotel with that name" });
+    }
+  } catch (error) {
+    res.status(404).send({ message: "Error finding the hotel name" });
   }
 });
 
 app.get("/hoteles", async (req, res) => {
-  const { lowPrice, highPrice, rate, city, country, name } = req.query;
-  console.log("sad");
+  const {
+    minPrice,
+    maxPrice,
+    fechaIn,
+    fechaOut,
+    country,
+    city,
+    name,
+    orderBy,
+    sortOrder,
+  } = req.query;
+  console.log(fechaIn, fechaOut);
   let filters = {};
-  if (lowPrice & highPrice) {
-    filters.lowPrice = lowPrice;
-    filters.highPrice = highPrice;
-  }
-  if (rate) {
-    filters.rate = rate;
-  }
-  if (city) {
-    filters.city = city;
+  if (minPrice) filters.minPrice = minPrice;
+  if (maxPrice) filters.maxPrice = maxPrice;
+  if (fechaIn && fechaOut) {
+    filters.fechaIn = fechaIn;
+    filters.fechaOut = fechaOut;
   }
   if (country) {
-    filters.country = country;
+    const countrySpaces = country.replace("-", " ");
+    filters.country = countrySpaces;
   }
   if (name) {
     filters.name = name;
   }
+  if (city) filters.city = city;
+  console.log("AS");
+  if (orderBy) {
+    filters.orderBy = orderBy;
+  }
+  if (sortOrder) {
+    filters.sortOrder = sortOrder;
+  }
   try {
-    const result = await hotelRepository.searchHotel(filters);
+    const result = await hotelRepository.searchHotelsDisponibility(filters);
     if (result.length > 0) {
       res.status(200).send(result);
     } else {
-      res.status(400).send({ message: "Any hotels was found" });
+      res.status(400).send({ message: "Any hotel was found" });
     }
   } catch (error) {
-    // res.status(500).send({ message: "Problem getting the hotels" });
-    throw new Error(error);
+    res
+      .status(404)
+      .send({ message: "Problem getting the hotels disponibility" });
   }
 });
-// app.get("/hotel-price", async (req, res) => {
-//   try {
-//     console.log(req.query);
-//     const { minPrice, maxPrice } = req.query;
-//     console.log(minPrice, maxPrice);
-//     const result = await hotelRepository.getHotelByPrice({
-//       minPrice,
-//       maxPrice,
-//     });
-//     if (result && result.length > 0) {
-//       res.status(200).send(result);
-//     } else {
-//       res.status(404).send({ message: "Not hotels found in this range" });
-//     }
-//   } catch (error) {
-//     throw new Error(error);
-//   }
-// });
-// app.get("/hotel/rate", async (req, res) => {
-//   const { lowRate, highRate } = req.query;
-//   try {
-//     const result = await hotelRepository.getHotelRate({ lowRate, highRate });
-//     if (result === null) {
-//       res
-//         .status(400)
-//         .send({ message: "Not hotels found with that specifications" });
-//     } else {
-//       res.status(200).send(result);
-//     }
-//     if (lowRate <= 0 || highRate > 5) {
-//       res.status(400).send({ message: "Invalid range" });
-//     }
-//   } catch (error) {
-//     res.status(500).send({ message: "Problem fetching the hotels" });
-//   }
-// });
 app.delete("/delete/:id", async (req, res) => {
   const { id } = req.params;
-  const result = await hotelRepository.deleteHotel(id);
-  res.status(200).send(result);
+  if (isNaN(id) || parseInt(id) <= 0)
+    return res.status(400).send({ message: "Invalid hotel ID" });
+  try {
+    const result = await hotelRepository.deleteHotel(id);
+    res.status(200).send(result);
+  } catch (error) {
+    res.status(404).send({
+      message: "Problem deleting your hotel, please try again later.",
+    });
+  }
 });
 app.delete("/delete-all", async (req, res) => {
+  if (!req.session.user)
+    return res.status(401).send("You must be logged in to delete all hotels");
   const { id } = req.session.user;
   const result = await hotelRepository.deleteAllHotelsUser(id);
   res.status(200).send(result);
 });
 app.patch("/modify-hotel", async (req, res) => {
   const { name, lastname, id } = req.session.user;
+  const data = validateHotelsSchema(req.body);
+  console.log(data);
+  if (!data.success) return res.status(400).send({ message: "Invalid data" });
   const {
     hotelId,
     hotelName,
@@ -229,7 +281,7 @@ app.patch("/modify-hotel", async (req, res) => {
     city,
     country,
     capacity,
-  } = req.body;
+  } = data.data;
   try {
     const result = await hotelRepository.patchHotel({
       hotelName,
@@ -250,11 +302,15 @@ app.patch("/modify-hotel", async (req, res) => {
     });
     res.status(200).send(result);
   } catch (error) {
-    throw new Error(error);
+    res
+      .status(500)
+      .send("Problem modifying the hotel, please try again later.");
   }
 });
 app.post("/disponibility-hotel", async (req, res) => {
-  const { hotelId, fechaIn, fechaOut, reason } = req.body;
+  const data = validateDisponibilitySchema(req.body);
+  if (!data.success) return res.status(400).send({ message: "Invalid data" });
+  const { hotelId, fechaIn, fechaOut, reason } = data.data;
 
   try {
     const result = await hotelRepository.changeDisponibility({
@@ -263,9 +319,14 @@ app.post("/disponibility-hotel", async (req, res) => {
       fechaOut,
       reason,
     });
+    if (result.message) {
+      res.status(400).send({ message: result.message });
+    }
     res.status(200).send(result);
   } catch (error) {
-    throw new Error("Problem changing the disponibility of your hotel");
+    res.status(500).send({
+      message: "Problem creating the disponibility, please try again later.",
+    });
   }
 });
 app.patch("/disponibility-hotel", async (req, res) => {
@@ -277,19 +338,25 @@ app.patch("/disponibility-hotel", async (req, res) => {
       fechaOut,
       id,
     });
+    if (result.message) res.status(400).send({ message: result.message });
     res.status(200).send(result);
   } catch (error) {
-    throw new Error(error);
+    res
+      .status(500)
+      .send("Problem modifying the disponibility, please try again later.");
   }
 });
 app.post("/reservation", async (req, res) => {
   const { id, name, lastname, username, email, type } = req.session.user;
-  if (type === 1)
-    throw new Error(
-      "You are a host, you can't make a reservation. Please create an account as costumer"
-    );
-  const { hotelId, fechaIn, fechaOut } = req.body;
 
+  if (type === 1)
+    res
+      .status(401)
+      .send({ message: "You can't make a reservation as an admin" });
+
+  const data = validateReservationSchema(req.body);
+  if (!data.success) return res.status(400).send({ message: "Invalid data" });
+  const { hotelId, fechaIn, fechaOut, price, paymentMethod } = data.data;
   try {
     const result = await rsvRepository.createRsv({
       userId: id,
@@ -301,6 +368,8 @@ app.post("/reservation", async (req, res) => {
       fechaOut,
       username,
     });
+    console.log(result);
+    if (result.message) res.status(400).send({ message: result.message });
     await rsvRepository.asignDisponibilityRsv({
       hotelId,
       fechaIn,
@@ -308,9 +377,15 @@ app.post("/reservation", async (req, res) => {
       reason: "reserved",
       rsvConfirmation: result.rsvConfirmation,
     });
-    res.status(200).send(res);
+    await paymentRepository.registerPayment({
+      price,
+      paymentMethod,
+      transactionId: result.rsvConfirmation,
+      rsvId: result.id,
+    });
+    res.status(200).send(result);
   } catch (error) {
-    throw new Error(error);
+    res.status(500).send({ message: "Error making your reservation" });
   }
 });
 app.get("/reservation", async (req, res) => {
@@ -319,12 +394,22 @@ app.get("/reservation", async (req, res) => {
     const result = await rsvRepository.getReservation(id);
     res.status(200).send(result);
   } catch (error) {
-    throw new Error("You don't have any reservations");
+    res
+      .status(404)
+      .send({ message: "Any reservation was found for this user" });
   }
 });
 app.patch("/reservation", async (req, res) => {
-  const { id, name, lastname, username, email, type } = req.session.user;
-  const { hotelId, fechaIn, fechaOut, rsvId, rsvConfirmation } = req.body;
+  const { id, name, lastname, username, email } = req.session.user;
+  const {
+    hotelId,
+    fechaIn,
+    fechaOut,
+    rsvId,
+    rsvConfirmation,
+    price,
+    paymentMethod,
+  } = req.body;
   try {
     const result = await rsvRepository.patchRsv({
       userId: id,
@@ -337,6 +422,7 @@ app.patch("/reservation", async (req, res) => {
       fechaOut,
       rsvId,
     });
+    if (result.message) res.status(400).send({ message: result.message });
     await rsvRepository.patchDisponibilityRsv({
       hotelId,
       fechaIn,
@@ -344,9 +430,17 @@ app.patch("/reservation", async (req, res) => {
       rsvConfirmation,
       newRsvConfirmation: result.newRsvConfirmation,
     });
+
+    await paymentRepository.patchPaymenth({
+      price,
+      paymentMethod,
+      transactionId: result.newRsvConfirmation,
+      rsvId: result.newRsvConfirmation,
+    });
+
     res.status(200).send(result);
   } catch (error) {
-    throw new Error("Error updating your reservation");
+    throw new Error(error);
   }
 });
 app.delete("/reservation/:rsvConfirmation", async (req, res) => {
@@ -354,9 +448,12 @@ app.delete("/reservation/:rsvConfirmation", async (req, res) => {
   try {
     const result = await rsvRepository.deleteRsv(rsvConfirmation);
     await rsvRepository.deleteDisponibility(rsvConfirmation);
+    await paymentRepository.deletePayment(rsvConfirmation);
     res.status(200).send(result);
   } catch (error) {
-    throw new Error("Problem deleting your reservation");
+    res.status(500).send({
+      message: "Problem deleting the reservation, please try again later.",
+    });
   }
 });
 app.delete("/disponibility-hotel", async (req, res) => {
@@ -365,13 +462,15 @@ app.delete("/disponibility-hotel", async (req, res) => {
     const result = await hotelRepository.deleteDisponibility(id);
     res.status(200).send(result);
   } catch (error) {
-    throw new Error(
-      "Some problem has occoured and we can't change the disponibility"
-    );
+    res.status(404).send({
+      message: "Problem deleting the disponibility, please try again later.",
+    });
   }
 });
 app.get("/disponibility/:hotelId", async (req, res) => {
   const { hotelId } = req.params;
+  if (isNaN(hotelId) || parseInt(hotelId) <= 0)
+    return res.status(400).send({ message: "Invalid hotel ID" });
   try {
     const result = await hotelRepository.getDisponibility(hotelId);
     if (result === null) {
@@ -382,40 +481,44 @@ app.get("/disponibility/:hotelId", async (req, res) => {
       res.status(200).send(result);
     }
   } catch (error) {
-    res.status(401).send({ message: error });
+    res.status(401).send({ message: "Problem getting the disponibility" });
   }
 });
-app.get("/hotel/search/disponibility", async (req, res) => {
-  const { minPrice, maxPrice, fechaIn, fechaOut, country, city, name } =
-    req.query;
-  let filters = {};
-  if (minPrice) filters.minPrice = minPrice;
-  if (maxPrice) filters.maxPrice = maxPrice;
-  if (fechaIn && fechaOut) {
-    filters.fechaIn = fechaIn;
-    filters.fechaOut = fechaOut;
-  }
-  if (country) {
-    const countrySpaces = country.replace("-", " ");
-    filters.country = countrySpaces;
-  }
-  if (name) {
-    filters.name = name;
-  }
-  if (city) filters.city = city;
-  console.log("AS");
+app.get("/payments", async (req, res) => {
+  const { id, type } = req.session.user;
+  if (type === 2)
+    return res
+      .status(401)
+      .send({ message: "You are not authorize to see the payments" });
+
   try {
-    const result = await hotelRepository.searchHotelsDisponibility(filters);
+    const result = await paymentRepository.getPaymentsByUserId(id);
     if (result.length > 0) {
       res.status(200).send(result);
     } else {
-      res.status(400).send({ message: "Any hotel was found" });
+      res.status(404).send({ message: "No payments found for this user" });
     }
+  } catch (error) {
+    res.status(500).send({ message: "Problem getting the payments" });
+  }
+});
+app.get("/hotel/rsv/payment", async (req, res) => {
+  const { id, type } = req.session.user;
+  if (type === 2)
+    return res.status(401).send({
+      message: "You are not authorize to see the reservations and payments",
+    });
+  try {
+    const result = await hotelRepository.getHotelRsvPayment(id);
+    if (result.message) {
+      res.status(400).send({ message: result.message });
+    }
+    console.log(result);
+    res.status(200).send(result);
   } catch (error) {
     throw new Error(error);
   }
 });
-
 app.listen(port, () => {
   console.log(`running in port ${port}`);
 });

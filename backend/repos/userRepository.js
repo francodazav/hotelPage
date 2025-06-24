@@ -18,24 +18,19 @@ export class userRepository {
     email,
     type,
   }) {
-    try {
-      await validateUser.validateUsername(username);
-      await validateUser.validateEmail(email);
-      await validateUser.validatePassword(password);
-      await validateUser.validateName(name);
-      await validateUser.validateName(lastname);
+    console.log(username);
+    const usernameVal = await validateUser.validateUsername(username);
+    if (usernameVal) throw new Error(usernameVal);
+    const validateEmail = await validateUser.validateEmail(email);
+    if (validateEmail) return { message: "Email already exists" };
+    const id = randomUUID();
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-      const id = randomUUID();
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      const result = await db.execute(
-        "INSERT INTO users(id,name,lastname,username,email,password,type) VALUES(?,?,?,?,?,?,?)",
-        [id, name, lastname, username, email, hashedPassword, type]
-      );
-      return result;
-    } catch (error) {
-      console.error(error);
-    }
+    const result = await db.execute(
+      "INSERT INTO users(id,name,lastname,username,email,password,type) VALUES(?,?,?,?,?,?,?)",
+      [id, name, lastname, username, email, hashedPassword, type]
+    );
+    return result;
   }
   static async loginUser({ username, password }) {
     await validateUser.validateUsernameLogin(username);
@@ -45,7 +40,7 @@ export class userRepository {
       [username]
     );
     const valid = await bcrypt.compare(password, result.rows[0].password);
-    if (!valid) throw new Error("username or password incorret");
+    if (!valid) return { message: "Invalid username or password" };
 
     const { name, lastname, id, email, type } = result.rows[0];
 

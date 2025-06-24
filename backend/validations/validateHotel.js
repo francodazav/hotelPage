@@ -4,8 +4,6 @@ import { createClient } from "@libsql/client";
 const db = createClient(infoDb);
 export class validateHotel {
   static async validateName(name) {
-    if (name.length < 4)
-      throw new Error(`${name} must have at least 4 letters`);
     const result = await db.execute("SELECT name FROM hoteles WHERE name = ?", [
       name,
     ]);

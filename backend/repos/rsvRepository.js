@@ -15,11 +15,23 @@ export class rsvRepository {
     fechaOut,
     username,
   }) {
+    const result = await db.execute(
+      "SELECT * FROM disponibility WHERE hotel_id = ? AND (fecha_in <= ? OR fecha_out >= ?)",
+      [hotelId, fechaOut, fechaIn]
+    );
+    console.log(result);
+    if (result.rows[0]) {
+      return {
+        message: "The Hotel is already ocuped for this reason ",
+      };
+    }
     const rsvConfirmation = rsvValidation.createRsvConfirmation();
     try {
+      const id = crypto.randomUUID();
       await db.execute(
-        "INSERT into reservations (hotel_id,user_id,name,lastname,username,email,rsv_confirm,fecha_in,fecha_out) VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT into reservations (id,hotel_id,user_id,name,lastname,username,email,rsv_confirm,fecha_in,fecha_out) VALUES(?,?,?,?,?,?,?,?,?,?)",
         [
+          id,
           hotelId,
           userId,
           name,
@@ -31,7 +43,9 @@ export class rsvRepository {
           fechaOut,
         ]
       );
+
       return {
+        id,
         hotelId,
         userId,
         name,
@@ -52,6 +66,15 @@ export class rsvRepository {
     reason,
     rsvConfirmation,
   }) {
+    const result = await db.execute(
+      "SELECT * FROM disponibility WHERE hotel_id = ? AND (fecha_in <= ? OR fecha_out >= ?)",
+      [hotelId, fechaOut, fechaIn]
+    );
+    if (result.rows.length > 0) {
+      return {
+        message: "The Hotel is already ocuped for this reason " + reason,
+      };
+    }
     await db.execute(
       "INSERT INTO disponibility(hotel_id,fecha_in,fecha_out,reason,rsv_confirm) VALUES(?,?,?,?,?)",
       [hotelId, fechaIn, fechaOut, reason, rsvConfirmation]
@@ -82,6 +105,15 @@ export class rsvRepository {
   }) {
     const newRsvConfirmation = rsvValidation.createRsvConfirmation();
     try {
+      const result = await db.execute(
+        "SELECT * FROM disponibility WHERE hotel_id = ? AND fecha_in <= ? AND fecha_out >= ?",
+        [hotelId, fechaOut, fechaIn]
+      );
+      if (result.rows[0]) {
+        return {
+          message: `The Hotel is already ocuped`,
+        };
+      }
       await db.execute(
         "UPDATE reservations SET hotel_id = ? ,user_id = ? ,name = ?,lastname = ?,username = ?,email = ?,rsv_confirm = ?,fecha_in = ?,fecha_out = ? WHERE id = ?",
         [
@@ -133,6 +165,7 @@ export class rsvRepository {
         "SELECT id FROM disponibility WHERE rsv_confirm = ?",
         [rsvConfirmation]
       );
+      console.log(result.rows);
       const { id } = result.rows[0];
       await db.execute(
         "UPDATE disponibility SET hotel_id = ? , fecha_in = ?, fecha_out = ?,  rsv_confirm = ?, reason = ? WHERE id = ?",

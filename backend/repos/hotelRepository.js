@@ -21,7 +21,6 @@ export class hotelRepository {
     capacity,
   }) {
     await validateHotel.validateName(hotelName);
-    await validateHotel.validatePrice(price);
 
     const result = await db.execute(
       "INSERT INTO hoteles(name,rate,price,direction,country,city,description,photos,services,capacity,user_id,user_name,user_lastname) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -33,46 +32,60 @@ export class hotelRepository {
         country,
         city,
         description,
-        photos,
-        services,
+        JSON.stringify(photos),
+        JSON.stringify(services),
+        capacity,
         userId,
         userName,
         userLastname,
-        capacity,
       ]
     );
     return result;
   }
   static async getAllHotels() {
     const result = await db.execute("SELECT * FROM hoteles");
-    return result.rows;
+    const hoteles = result.rows.map((row) => ({
+      ...row,
+      photos: JSON.parse(row.photos || "[]"),
+      services: JSON.parse(row.services || "[]"),
+      userId: row.user_id,
+      userName: row.user_name,
+      userLastname: row.user_lastname,
+    }));
+    console.log(hoteles);
+
+    return hoteles;
   }
   static async getHotelById(id) {
     const result = await db.execute("SELECT * FROM hoteles WHERE id = ?", [id]);
-    return result.rows[0];
+    if (result.rows.length === 0) {
+      return { message: `Hotel with id ${id} not found` };
+    }
+    return {
+      ...result.rows[0],
+      photos: JSON.parse(result.rows[0].photos || "[]"),
+      services: JSON.parse(result.rows[0].services || "[]"),
+    };
   }
   static async getHotelByName(name) {
     const result = await db.execute("SELECT * FROM hoteles WHERE name LIKE ?", [
       `%${name}%`,
     ]);
-    return result.rows;
-  }
-  static async getHotelByPrice({ minPrice, maxPrice }) {
-    const result = await db.execute(
-      `SELECT * FROM hoteles WHERE price >= ? AND price <= ?`,
-      [minPrice, maxPrice]
-    );
-    return result.rows;
+    return {
+      ...result.rows[0],
+      photos: JSON.parse(result.rows[0].photos || "[]"),
+      services: JSON.parse(result.rows[0].services || "[]"),
+    };
   }
   static async deleteHotel(id) {
-    const result = await db.execute("DELETE FROM hoteles WHERE id = ?", [id]);
-    return result;
+    await db.execute("SELECT FROM hoteles WHERE id = ?", [id]);
+    if (!result.rows) return error`Hotel with id ${id} not found`;
+    await db.execute("DELETE FROM hoteles WHERE id = ?", [id]);
+    return { message: "Hotel deleted successfully" };
   }
   static async deleteAllHotelsUser(userId) {
-    const result = await db.execute("DELETE FROM hoteles WHERE user_id = ?", [
-      userId,
-    ]);
-    return result;
+    await db.execute("DELETE FROM hoteles WHERE user_id = ?", [userId]);
+    return { message: "All hotels deleted successfully" };
   }
   static async patchHotel({
     hotelId,
@@ -91,7 +104,7 @@ export class hotelRepository {
     capacity,
   }) {
     await validateHotel.validateId(hotelId);
-    const result = await db.execute(
+    await db.execute(
       "UPDATE hoteles SET name = ? , rate = ? , price = ? , description = ?, direction = ?, country = ?, city = ?, photos = ? , services = ?,capacity = ?,user_id = ?,user_name = ?, user_lastname =  ?  WHERE id = ?",
       [
         hotelName,
@@ -101,8 +114,8 @@ export class hotelRepository {
         direction,
         country,
         city,
-        photos,
-        services,
+        JSON.stringify(photos),
+        JSON.stringify(services),
         capacity,
         userId,
         userName,
@@ -110,9 +123,35 @@ export class hotelRepository {
         hotelId,
       ]
     );
-    return result.rows[0];
+    return {
+      message: "Hotel updated successfully",
+      hotelId,
+      hotelName,
+      rate,
+      price,
+      direction,
+      description,
+      photos,
+      services,
+      userId,
+      userName,
+      userLastname,
+      city,
+      country,
+      capacity,
+    };
   }
   static async changeDisponibility({ hotelId, fechaIn, fechaOut, reason }) {
+    const result = await db.execute(
+      "SELECT * FROM disponibility WHERE hotel_id = ? AND fecha_in <= ? AND fecha_out >= ?",
+      [hotelId, fechaOut, fechaIn]
+    );
+    console.log(result);
+    if (result.rows[0]) {
+      return {
+        message: `The Hotel is already ocuped for this reason ${reason}`,
+      };
+    }
     await db.execute(
       "INSERT INTO disponibility(hotel_id,fecha_in,fecha_out,reason) VALUES(?,?,?,?)",
       [hotelId, fechaIn, fechaOut, reason]
@@ -125,6 +164,16 @@ export class hotelRepository {
     };
   }
   static async modifyDisponibility({ hotelId, fechaIn, fechaOut, id }) {
+    const result = await db.execute(
+      "SELECT * FROM disponibility WHERE hotel_id = ? AND fecha_in <= ? AND fecha_out >= ?",
+      [hotelId, fechaOut, fechaIn]
+    );
+    console.log(result);
+    if (result.rows[0]) {
+      return {
+        message: `The Hotel is already ocuped for this reason ${reason}`,
+      };
+    }
     await db.execute(
       "UPDATE disponibility SET hotel_id = ? , fecha_in = ?, fecha_out = ? WHERE id = ?",
       [hotelId, fechaIn, fechaOut, id]
@@ -143,15 +192,15 @@ export class hotelRepository {
     return result.rows;
   }
   static async searchHotelsDisponibility(filters = {}) {
+    console.log(filters);
     let query = `
        SELECT h.id, d.hotel_id, h.name, h.price, d.fecha_in, d.fecha_out, h.country, h.city, h.direction, h.services, h.photos
         FROM hoteles h
-        JOIN disponibility d ON h.id = d.hotel_id
+        LEFT JOIN disponibility d ON h.id = d.hotel_id
         WHERE 1=1 
     `;
-    console.log(filters);
+    const allowedOrderBy = ["price", "rate", "country", "city"];
     const params = [];
-    console.log(query);
     if (filters.minPrice) {
       query += ` AND h.price >= ?`;
       params.push(filters.minPrice);
@@ -161,8 +210,15 @@ export class hotelRepository {
       params.push(filters.maxPrice);
     }
     if (filters.fechaIn && filters.fechaOut) {
-      query += ` AND (d.fecha_out < ? OR d.fecha_in > ?)`;
-      params.push(filters.fechaIn, filters.fechaOut);
+      query += ` AND NOT EXISTS (
+        SELECT 1 FROM disponibility d2
+        WHERE d2.hotel_id = h.id
+        AND (
+          d2.fecha_in <= ? AND d2.fecha_out >= ?
+        )
+      )`;
+      // Parameters for the single overlap condition
+      params.push(filters.fechaOut, filters.fechaIn);
     }
     if (filters.country) {
       query += " AND h.country LIKE ?";
@@ -172,32 +228,54 @@ export class hotelRepository {
       query += " AND h.city LIKE ?";
       params.push(`%${filters.city}%`);
     }
-    if (filters.name) {
-      query += " AND h.name LIKE ?";
-      params.push(`%${filters.name}%`);
+    if (filters.rate) {
+      query += " AND rate >= ?";
+      params.push(filters.rate);
     }
-    try {
-      const result = await db.execute(query, params);
-      console.log(query);
-      console.log(params);
-      return result.rows;
-    } catch (error) {
-      throw new Error();
+    if (filters.orderBy && allowedOrderBy.includes(filters.orderBy)) {
+      const orderBy = filters.orderBy;
+      const sortOrder = filters.sortOrder || "ASC";
+      query += ` ORDER BY ${orderBy} ${sortOrder}`;
     }
+    if (filters.limit) {
+      query += "LIMIT ?";
+      params.push(filters.limit);
+    }
+    if (filters.offset) {
+      query += " OFFSET ?";
+      params.push(filters.offset);
+    }
+    console.log(query, params);
+    const result = await db.execute(query, params);
+    const hoteles = result.rows.map((row) => ({
+      ...row,
+      photos: JSON.parse(row.photos || "[]"),
+      services: JSON.parse(row.services || "[]"),
+      userId: row.user_id,
+      userName: row.user_name,
+      userLastname: row.user_lastname,
+    }));
+
+    return hoteles;
   }
   static async searchHotel(filters = {}) {
+    const allowedOrderBy = ["price", "rate", "country", "city"];
     let query = "SELECT * FROM hoteles WHERE 1 = 1";
     const params = [];
-    if (filters.minPrice && filters.maxPrice) {
-      query += " AND (price > ? AND price < ?)";
-      params.push(filters.minPrice, filters.maxPrice);
+    if (filters.minPrice) {
+      query += ` AND h.price >= ?`;
+      params.push(filters.minPrice);
+    }
+    if (filters.maxPrice) {
+      query += ` AND h.price <= ?`;
+      params.push(filters.maxPrice);
     }
     if (filters.rate) {
-      query += " AND rate > ?";
+      query += " AND rate >= ?";
       params.push(filters.rate);
     }
     if (filters.city) {
-      query += "AND city LIKE ?";
+      query += " AND city LIKE ?";
       params.push(`%${filters.city}%`);
     }
 
@@ -205,18 +283,39 @@ export class hotelRepository {
       query += " AND country LIKE ?";
       params.push(`%${filters.country}%`);
     }
-    if (filters.name) {
-      query += " AND h.name LIKE ?";
-      params.push(`%${filters.name}%`);
+
+    if (filters.orderBy && allowedOrderBy.includes(filters.orderBy)) {
+      const orderBy = filters.orderBy;
+      const sortOrder = filters.sortOrder || "ASC";
+      query += ` ORDER BY ${orderBy} ${sortOrder}`;
     }
-    try {
-      console.log(query);
-      console.log(params);
-      const result = await db.execute(query, params);
-      return result.rows;
-    } catch (error) {
-      throw new Error(error);
+
+    const result = await db.execute(query, params);
+    const hoteles = result.rows.map((row) => ({
+      ...row,
+      photos: JSON.parse(row.photos || "[]"),
+      services: JSON.parse(row.services || "[]"),
+    }));
+
+    return hoteles;
+  }
+  static async getHotelRsvPayment(id) {
+    const result = await db.execute(
+      "SELECT h.id , r.id ,  h.user_id , r.fecha_in, r.fecha_out , h.price, r.rsv_confirm, p.payment_method, p.price, p.transaction_id , p.id FROM hoteles h JOIN reservations r ON h.id = r.hotel_id LEFT JOIN payments p ON r.rsv_confirm = p.transaction_id WHERE h.user_id = ?",
+      [id]
+    );
+    if (!result.rows || result.rows.length === 0) {
+      return { message: "No reservations found for this user." };
     }
+    const rsv = result.rows.map((row) => ({
+      ...row,
+      userId: row.user_id,
+      fechaIn: row.fecha_in,
+      fechaOut: row.fecha_out,
+      rsvConfirmation: row.rsv_confirm,
+      paymentMethod: row.payment_method,
+    }));
+    return rsv;
   }
 }
 
