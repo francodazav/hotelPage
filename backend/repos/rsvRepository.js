@@ -15,11 +15,22 @@ export class rsvRepository {
     fechaOut,
     username,
   }) {
+    console.log(
+      "info",
+      userId,
+      name,
+      lastname,
+      email,
+      hotelId,
+      fechaIn,
+      fechaOut,
+      username
+    );
     const result = await db.execute(
-      "SELECT * FROM disponibility WHERE hotel_id = ? AND (fecha_in <= ? OR fecha_out >= ?)",
+      "SELECT * FROM disponibility WHERE hotel_id = ? AND (fecha_in < ? AND fecha_out > ?)",
       [hotelId, fechaOut, fechaIn]
     );
-    console.log(result);
+    console.log(result.rows[0]);
     if (result.rows[0]) {
       return {
         message: "The Hotel is already ocuped for this reason ",

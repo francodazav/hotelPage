@@ -26,11 +26,18 @@ export class userRepository {
     const id = randomUUID();
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const result = await db.execute(
+    await db.execute(
       "INSERT INTO users(id,name,lastname,username,email,password,type) VALUES(?,?,?,?,?,?,?)",
       [id, name, lastname, username, email, hashedPassword, type]
     );
-    return result;
+    return {
+      id,
+      name,
+      lastname,
+      username,
+      email,
+      type,
+    };
   }
   static async loginUser({ username, password }) {
     await validateUser.validateUsernameLogin(username);

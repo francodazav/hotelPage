@@ -56,6 +56,13 @@ export class hotelRepository {
 
     return hoteles;
   }
+  static async getUserHotels(id) {
+    const result = await db.execute("SELECT * FROM hoteles WHERE user_id = ?", [
+      id,
+    ]);
+    console.log(id);
+    return result.rows;
+  }
   static async getHotelById(id) {
     const result = await db.execute("SELECT * FROM hoteles WHERE id = ?", [id]);
     if (result.rows.length === 0) {
@@ -189,12 +196,17 @@ export class hotelRepository {
       "SELECT * FROM disponibility WHERE hotel_id = ?",
       [hotelId]
     );
-    return result.rows;
+    const fechas = result.rows.map((fecha) => {
+      const fechaIn = fecha.fecha_in;
+      const fechaOut = fecha.fecha_out;
+      return { fechaIn, fechaOut };
+    });
+    return fechas;
   }
   static async searchHotelsDisponibility(filters = {}) {
     console.log(filters);
     let query = `
-       SELECT h.id, d.hotel_id, h.name, h.price, d.fecha_in, d.fecha_out, h.country, h.city, h.direction, h.services, h.photos
+       SELECT h.id, d.hotel_id, h.name, h.price, d.fecha_in, d.fecha_out,h.description ,h.country, h.city, h.direction, h.services, h.photos, h.capacity
         FROM hoteles h
         LEFT JOIN disponibility d ON h.id = d.hotel_id
         WHERE 1=1 

@@ -7,4 +7,5 @@ const infoDb = {
 const SECRET_KEY =
   "Esta_Es_La_Secret_Key_Que_Escogimos_El_Dia_De_Hoy_Esperemos_Y_Sea_De_SU-Agrado-4-8-15-16-23-42_Son_Los_Numeros_De_La_Escotilla_Viva_Dharma_Viva_Jacob";
 
+const DROPBOX_TOKEN = "wsl2you68x8l7xr";
 export { infoDb, SECRET_KEY };

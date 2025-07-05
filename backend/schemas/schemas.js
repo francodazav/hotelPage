@@ -31,20 +31,26 @@ const userSchema = z.object({
     .max(2, "Type must be 1 or 2"),
 });
 
-const hotelSchema = z.object({
-  hotelName: z.string().min(1, "Hotel name is required"),
-  rate: z.number().min(0, "Rate must be a positive number"),
-  price: z
-    .number()
-    .min(50, "Price must be a positive number")
-    .max(10000, "Price must be less than 10000"),
-  direction: z.string().min(1, "Direction is required"),
+export const hotelSchema = z.object({
+  hotelName: z.string().min(2, "Hotel name must have at least 2 letters"),
   country: z.string().min(1, "Country is required"),
   city: z.string().min(1, "City is required"),
   description: z.string().min(1, "Description is required"),
-  photos: z.record(z.string(), z.string()),
-  services: z.record(z.string(), z.string()),
+  direction: z.string().min(1, "Direction is required"),
+  rate: z.number().min(0, "Rate must be a positive number"),
+  price: z.number().min(0, "Price must be a positive number"),
   capacity: z.number().int().min(1, "Capacity must be at least 1"),
+  services: z.object({
+    Parking: z.boolean(),
+    "Wi-Fi": z.boolean(),
+    Pool: z.boolean(),
+    Gym: z.boolean(),
+    Restaurant: z.boolean(),
+    Spa: z.boolean(),
+  }),
+  photos: z
+    .array(z.any()) // si usas multer o buffers, aquí puede ser z.any() o el tipo correcto
+    .min(3, "You must upload at least 3 photos"),
 });
 const reservationSchema = z.object({
   hotelId: z.number().int().min(1, "Hotel ID must be a positive integer"),

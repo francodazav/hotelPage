@@ -1,9 +1,11 @@
+import dotenv from "dotenv";
 import express from "express";
+
 import { SECRET_KEY } from "./const/const.js";
 import { createTables } from "./tables/tables.js";
 import { userRepository } from "./repos/userRepository.js";
 import cookieParser from "cookie-parser";
-import pkg from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import { hotelRepository } from "./repos/hotelRepository.js";
 import { rsvRepository } from "./repos/rsvRepository.js";
 import { paymentRepository } from "./repos/paymentRepository.js";
@@ -14,15 +16,36 @@ import {
   validateUserSchema,
 } from "./schemas/schemas.js";
 import { corsMiddleware } from "./cors/cors.js";
+import multer from "multer";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import path from "path";
+import uploader from "imgbb-uploader";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, "../.env") });
+const upload = multer({ dest: "uploads/" });
 const port = process.env.PORT || 3000;
-
-const { verify, sign } = pkg;
+const { verify, sign } = jwt;
 createTables();
 const app = express();
 app.disable("x-powered-by");
+app.use(corsMiddleware());
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "http://localhost:5174");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
 app.use(express.json());
 app.use(cookieParser());
-app.use(corsMiddleware());
 app.use((req, res, next) => {
   const token = req.cookies.access_token;
   req.session = { user: null };
@@ -52,7 +75,7 @@ app.get("/all-users", async (req, res) => {
 app.post("/sign-up", async (req, res) => {
   try {
     const data = validateUserSchema(req.body);
-    if (!data.success) res.status(400).send({ message: "Invalid data" });
+    if (!data.success) res.status(400).send({ data });
     const { username, name, lastname, email, password, type } = data.data;
 
     const result = await userRepository.registerUser({
@@ -63,7 +86,7 @@ app.post("/sign-up", async (req, res) => {
       password,
       type,
     });
-    res.send(result.rows[0]);
+    res.send(result);
   } catch (error) {
     res.status(400).send({ message: "Username or email already exists" });
   }
@@ -100,12 +123,14 @@ app.get("/logout", (req, res) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
+    path: "/",
   });
+  console.log(req.session.user);
   res.status(200).send("user logout successfully");
 });
-app.post("/upload-hotel", async (req, res) => {
+app.post("/upload-hotel", upload.array("photos"), async (req, res) => {
   if (!req.session.user)
-    res.status(401).send("You must be logged in to upload a hotel");
+    return res.status(401).send("You must be logged in to upload a hotel");
   const { id, name, lastname, username, type } = req.session.user;
   if (type === 2)
     res
@@ -113,7 +138,8 @@ app.post("/upload-hotel", async (req, res) => {
       .send(
         "You are not authorize to upload a hotel, please contact the admin"
       );
-  const data = validateHotelsSchema(req.body);
+  const parsed = JSON.parse(req.body.data);
+  const data = validateHotelsSchema(parsed);
   if (data.success === false)
     return res.status(400).send({ message: "Invalid data" });
   const {
@@ -122,12 +148,29 @@ app.post("/upload-hotel", async (req, res) => {
     price,
     direction,
     description,
-    photos,
     services,
     country,
     city,
     capacity,
   } = data.data;
+  console.log(process.env.DROPBOX_ACCESS_TOKEN);
+  const photos = {};
+  console.log("Archivos recibidos:", req.files);
+  for (let i = 0; i < req.files.length; i++) {
+    const file = req.files[i];
+    try {
+      const filePath = file.path;
+      const fileBuffer = fs.readFileSync(filePath);
+
+      const result = await uploader(process.env.IMGBB_API_KEY, file.path);
+
+      photos[`photo${i + 1}`] = result.display_url;
+    } catch (error) {
+      console.error("❌ Error uploading:", error);
+    } finally {
+      fs.unlinkSync(file.path); // limpiar archivo local
+    }
+  }
   try {
     const result = await hotelRepository.uploadHotel({
       userId: id,
@@ -145,12 +188,23 @@ app.post("/upload-hotel", async (req, res) => {
       city,
       capacity,
     });
-    res.status(200).send(result);
+    res.status(200).send({ message: "Spot uploaded successfully" });
   } catch (error) {
     throw new Error(error);
     // res.status(500).send({
     //   message: "Problem uploading the hotel, please try again later.",
     // });
+  }
+});
+app.get("/my-hotels", async (req, res) => {
+  try {
+    console.log(req.session.user);
+    const { id } = req.session.user;
+    console.log(id);
+    const result = await hotelRepository.getUserHotels(id);
+    res.status(200).send(result);
+  } catch (error) {
+    throw new Error(error);
   }
 });
 app.get("/all-hotels", async (req, res) => {
@@ -208,7 +262,7 @@ app.get("/hoteles", async (req, res) => {
     orderBy,
     sortOrder,
   } = req.query;
-  console.log(fechaIn, fechaOut);
+  console.log("user", req.session.user);
   let filters = {};
   if (minPrice) filters.minPrice = minPrice;
   if (maxPrice) filters.maxPrice = maxPrice;
@@ -224,7 +278,7 @@ app.get("/hoteles", async (req, res) => {
     filters.name = name;
   }
   if (city) filters.city = city;
-  console.log("AS");
+
   if (orderBy) {
     filters.orderBy = orderBy;
   }
