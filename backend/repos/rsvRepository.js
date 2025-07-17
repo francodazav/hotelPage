@@ -78,9 +78,10 @@ export class rsvRepository {
     rsvConfirmation,
   }) {
     const result = await db.execute(
-      "SELECT * FROM disponibility WHERE hotel_id = ? AND (fecha_in <= ? OR fecha_out >= ?)",
+      "SELECT * FROM disponibility WHERE hotel_id = ? AND (fecha_in <= ? AND fecha_out >= ?)",
       [hotelId, fechaOut, fechaIn]
     );
+    console.log(result.rows);
     if (result.rows.length > 0) {
       return {
         message: "The Hotel is already ocuped for this reason " + reason,
@@ -95,12 +96,20 @@ export class rsvRepository {
   static async getReservation(id) {
     try {
       const result = await db.execute(
-        "SELECT * FROM reservations WHERE user_id = ?",
+        "SELECT h.name,r.hotel_id ,h.id, r.rsv_confirm, r.user_id, r.fecha_in, r.fecha_out , h.photos , p.price , p.transaction_id FROM reservations r  JOIN hoteles h ON h.id = r.hotel_id JOIN payments p ON p.transaction_id = r.rsv_confirm WHERE r.user_id = ?",
         [id]
       );
-      return result.rows;
+      const reservations = result.rows.map((rsv) => {
+        const name = rsv.name;
+        const fechaIn = rsv.fecha_in;
+        const fechaOut = rsv.fecha_out;
+        const price = rsv.price;
+        const rsvConfirm = rsv.rsv_confirm;
+        return { name, fechaIn, fechaOut, price, rsvConfirm };
+      });
+      return reservations;
     } catch (error) {
-      throw new Error("You don't have any reservations");
+      throw new Error(error);
     }
   }
   static async patchRsv({

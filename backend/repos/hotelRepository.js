@@ -52,7 +52,6 @@ export class hotelRepository {
       userName: row.user_name,
       userLastname: row.user_lastname,
     }));
-    console.log(hoteles);
 
     return hoteles;
   }
@@ -60,8 +59,17 @@ export class hotelRepository {
     const result = await db.execute("SELECT * FROM hoteles WHERE user_id = ?", [
       id,
     ]);
-    console.log(id);
-    return result.rows;
+    const hoteles = result.rows.map((row) => ({
+      ...row,
+      photos: JSON.parse(row.photos),
+      services: JSON.parse(row.services),
+      userId: row.user_id,
+      userName: row.user_name,
+      userLastname: row.user_lastname,
+      message: "hola",
+    }));
+    console.log("aqui", hoteles);
+    return hoteles;
   }
   static async getHotelById(id) {
     const result = await db.execute("SELECT * FROM hoteles WHERE id = ?", [id]);
@@ -85,8 +93,11 @@ export class hotelRepository {
     };
   }
   static async deleteHotel(id) {
-    await db.execute("SELECT FROM hoteles WHERE id = ?", [id]);
-    if (!result.rows) return error`Hotel with id ${id} not found`;
+    console.log("id", id);
+    const result = await db.execute("SELECT * FROM hoteles WHERE id = ?", [id]);
+    console.log(result);
+    if (result.rows.length === 0)
+      return { message: `Hotel with id ${id} not found` };
     await db.execute("DELETE FROM hoteles WHERE id = ?", [id]);
     return { message: "Hotel deleted successfully" };
   }
@@ -110,28 +121,7 @@ export class hotelRepository {
     country,
     capacity,
   }) {
-    await validateHotel.validateId(hotelId);
-    await db.execute(
-      "UPDATE hoteles SET name = ? , rate = ? , price = ? , description = ?, direction = ?, country = ?, city = ?, photos = ? , services = ?,capacity = ?,user_id = ?,user_name = ?, user_lastname =  ?  WHERE id = ?",
-      [
-        hotelName,
-        rate,
-        price,
-        description,
-        direction,
-        country,
-        city,
-        JSON.stringify(photos),
-        JSON.stringify(services),
-        capacity,
-        userId,
-        userName,
-        userLastname,
-        hotelId,
-      ]
-    );
-    return {
-      message: "Hotel updated successfully",
+    console.log(
       hotelId,
       hotelName,
       rate,
@@ -145,13 +135,40 @@ export class hotelRepository {
       userLastname,
       city,
       country,
-      capacity,
-    };
+      capacity
+    );
+    await validateHotel.validateId(hotelId);
+    try {
+      await db.execute(
+        "UPDATE hoteles SET name = ? , rate = ? , price = ? , description = ?, direction = ?, country = ?, city = ?, photos = ? , services = ?,capacity = ?,user_id = ?,user_name = ?, user_lastname =  ?  WHERE id = ?",
+        [
+          hotelName,
+          rate,
+          price,
+          description,
+          direction,
+          country,
+          city,
+          JSON.stringify(photos),
+          JSON.stringify(services),
+          capacity,
+          userId,
+          userName,
+          userLastname,
+          hotelId,
+        ]
+      );
+      return {
+        message: "Hotel updated successfully",
+      };
+    } catch (error) {
+      return error;
+    }
   }
   static async changeDisponibility({ hotelId, fechaIn, fechaOut, reason }) {
     const result = await db.execute(
-      "SELECT * FROM disponibility WHERE hotel_id = ? AND fecha_in <= ? AND fecha_out >= ?",
-      [hotelId, fechaOut, fechaIn]
+      "SELECT * FROM disponibility WHERE hotel_id = ? AND NOT (fecha_out <= ? OR fecha_in >= ?)",
+      [hotelId, fechaIn, fechaOut]
     );
     console.log(result);
     if (result.rows[0]) {
@@ -204,9 +221,9 @@ export class hotelRepository {
     return fechas;
   }
   static async searchHotelsDisponibility(filters = {}) {
-    console.log(filters);
+    console.log(filters.country);
     let query = `
-       SELECT h.id, d.hotel_id, h.name, h.price, d.fecha_in, d.fecha_out,h.description ,h.country, h.city, h.direction, h.services, h.photos, h.capacity
+       SELECT DISTINCT h.id, d.hotel_id, h.name, h.price, d.fecha_in, d.fecha_out,h.description ,h.country, h.city, h.direction, h.services, h.photos, h.capacity
         FROM hoteles h
         LEFT JOIN disponibility d ON h.id = d.hotel_id
         WHERE 1=1 
@@ -257,7 +274,7 @@ export class hotelRepository {
       query += " OFFSET ?";
       params.push(filters.offset);
     }
-    console.log(query, params);
+    query += `GROUP BY h.id`;
     const result = await db.execute(query, params);
     const hoteles = result.rows.map((row) => ({
       ...row,
@@ -267,7 +284,7 @@ export class hotelRepository {
       userName: row.user_name,
       userLastname: row.user_lastname,
     }));
-
+    console.log(hoteles);
     return hoteles;
   }
   static async searchHotel(filters = {}) {

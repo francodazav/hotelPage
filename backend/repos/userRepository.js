@@ -20,7 +20,7 @@ export class userRepository {
   }) {
     console.log(username);
     const usernameVal = await validateUser.validateUsername(username);
-    if (usernameVal) throw new Error(usernameVal);
+    if (usernameVal) return { message: "Username already exists" };
     const validateEmail = await validateUser.validateEmail(email);
     if (validateEmail) return { message: "Email already exists" };
     const id = randomUUID();
@@ -31,12 +31,8 @@ export class userRepository {
       [id, name, lastname, username, email, hashedPassword, type]
     );
     return {
-      id,
-      name,
-      lastname,
-      username,
-      email,
-      type,
+      message: "User was register sussccesfully",
+      registered: true,
     };
   }
   static async loginUser({ username, password }) {

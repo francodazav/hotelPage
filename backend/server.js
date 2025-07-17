@@ -11,6 +11,7 @@ import { rsvRepository } from "./repos/rsvRepository.js";
 import { paymentRepository } from "./repos/paymentRepository.js";
 import {
   validateDisponibilitySchema,
+  validateHotelSchemaModify,
   validateHotelsSchema,
   validateReservationSchema,
   validateUserSchema,
@@ -75,7 +76,8 @@ app.get("/all-users", async (req, res) => {
 app.post("/sign-up", async (req, res) => {
   try {
     const data = validateUserSchema(req.body);
-    if (!data.success) res.status(400).send({ data });
+    console.log(data);
+    if (!data.success) res.status(400).send(data.message);
     const { username, name, lastname, email, password, type } = data.data;
 
     const result = await userRepository.registerUser({
@@ -298,8 +300,9 @@ app.get("/hoteles", async (req, res) => {
       .send({ message: "Problem getting the hotels disponibility" });
   }
 });
-app.delete("/delete/:id", async (req, res) => {
-  const { id } = req.params;
+app.delete("/delete", async (req, res) => {
+  const { id } = req.body;
+  console.log(id);
   if (isNaN(id) || parseInt(id) <= 0)
     return res.status(400).send({ message: "Invalid hotel ID" });
   try {
@@ -312,32 +315,37 @@ app.delete("/delete/:id", async (req, res) => {
   }
 });
 app.delete("/delete-all", async (req, res) => {
-  if (!req.session.user)
-    return res.status(401).send("You must be logged in to delete all hotels");
-  const { id } = req.session.user;
-  const result = await hotelRepository.deleteAllHotelsUser(id);
-  res.status(200).send(result);
+  try {
+    if (!req.session.user)
+      return res.status(401).send("You must be logged in to delete all hotels");
+    const { id } = req.session.user;
+    const result = await hotelRepository.deleteAllHotelsUser(id);
+    res.status(200).send(result);
+  } catch (error) {
+    res.status(400).send({ message: error });
+  }
 });
 app.patch("/modify-hotel", async (req, res) => {
   const { name, lastname, id } = req.session.user;
-  const data = validateHotelsSchema(req.body);
-  console.log(data);
+  const data = validateHotelSchemaModify(req.body);
+  const { photos, hotelId } = req.body;
   if (!data.success) return res.status(400).send({ message: "Invalid data" });
   const {
-    hotelId,
     hotelName,
     rate,
     price,
     description,
     direction,
-    photos,
+
     services,
     city,
     country,
     capacity,
   } = data.data;
+  console.log(hotelId);
   try {
-    const result = await hotelRepository.patchHotel({
+    await hotelRepository.patchHotel({
+      hotelId,
       hotelName,
       userLastname: lastname,
       userName: name,
@@ -354,11 +362,9 @@ app.patch("/modify-hotel", async (req, res) => {
       country,
       capacity,
     });
-    res.status(200).send(result);
+    res.status(200).send({ message: "Spot updated sussccesfully" });
   } catch (error) {
-    res
-      .status(500)
-      .send("Problem modifying the hotel, please try again later.");
+    throw new Error(error);
   }
 });
 app.post("/disponibility-hotel", async (req, res) => {
@@ -375,6 +381,7 @@ app.post("/disponibility-hotel", async (req, res) => {
     });
     if (result.message) {
       res.status(400).send({ message: result.message });
+      return;
     }
     res.status(200).send(result);
   } catch (error) {
@@ -386,6 +393,7 @@ app.post("/disponibility-hotel", async (req, res) => {
 app.patch("/disponibility-hotel", async (req, res) => {
   const { id, hotelId, fechaIn, fechaOut } = req.body;
   try {
+    console.log(req.body);
     const result = await hotelRepository.modifyDisponibility({
       hotelId,
       fechaIn,
@@ -424,13 +432,14 @@ app.post("/reservation", async (req, res) => {
     });
     console.log(result);
     if (result.message) res.status(400).send({ message: result.message });
-    await rsvRepository.asignDisponibilityRsv({
+    const disponibility = await rsvRepository.asignDisponibilityRsv({
       hotelId,
       fechaIn,
       fechaOut,
       reason: "reserved",
       rsvConfirmation: result.rsvConfirmation,
     });
+    if (disponibility.message) res.status(400).send({ message: "Not avaible" });
     await paymentRepository.registerPayment({
       price,
       paymentMethod,
@@ -448,9 +457,10 @@ app.get("/reservation", async (req, res) => {
     const result = await rsvRepository.getReservation(id);
     res.status(200).send(result);
   } catch (error) {
-    res
-      .status(404)
-      .send({ message: "Any reservation was found for this user" });
+    throw new Error(error);
+    // res
+    //   .status(404)
+    //   .send({ message: "Any reservation was found for this user" });
   }
 });
 app.patch("/reservation", async (req, res) => {
