@@ -68,7 +68,6 @@ export class hotelRepository {
       userLastname: row.user_lastname,
       message: "hola",
     }));
-    console.log("aqui", hoteles);
     return hoteles;
   }
   static async getHotelById(id) {
@@ -93,9 +92,8 @@ export class hotelRepository {
     };
   }
   static async deleteHotel(id) {
-    console.log("id", id);
     const result = await db.execute("SELECT * FROM hoteles WHERE id = ?", [id]);
-    console.log(result);
+
     if (result.rows.length === 0)
       return { message: `Hotel with id ${id} not found` };
     await db.execute("DELETE FROM hoteles WHERE id = ?", [id]);
@@ -121,22 +119,6 @@ export class hotelRepository {
     country,
     capacity,
   }) {
-    console.log(
-      hotelId,
-      hotelName,
-      rate,
-      price,
-      direction,
-      description,
-      photos,
-      services,
-      userId,
-      userName,
-      userLastname,
-      city,
-      country,
-      capacity
-    );
     await validateHotel.validateId(hotelId);
     try {
       await db.execute(
@@ -170,7 +152,6 @@ export class hotelRepository {
       "SELECT * FROM disponibility WHERE hotel_id = ? AND NOT (fecha_out <= ? OR fecha_in >= ?)",
       [hotelId, fechaIn, fechaOut]
     );
-    console.log(result);
     if (result.rows[0]) {
       return {
         message: `The Hotel is already ocuped for this reason ${reason}`,
@@ -192,7 +173,6 @@ export class hotelRepository {
       "SELECT * FROM disponibility WHERE hotel_id = ? AND fecha_in <= ? AND fecha_out >= ?",
       [hotelId, fechaOut, fechaIn]
     );
-    console.log(result);
     if (result.rows[0]) {
       return {
         message: `The Hotel is already ocuped for this reason ${reason}`,
@@ -221,7 +201,6 @@ export class hotelRepository {
     return fechas;
   }
   static async searchHotelsDisponibility(filters = {}) {
-    console.log(filters.country);
     let query = `
        SELECT DISTINCT h.id, d.hotel_id, h.name, h.price, d.fecha_in, d.fecha_out,h.description ,h.country, h.city, h.direction, h.services, h.photos, h.capacity
         FROM hoteles h
@@ -284,7 +263,6 @@ export class hotelRepository {
       userName: row.user_name,
       userLastname: row.user_lastname,
     }));
-    console.log(hoteles);
     return hoteles;
   }
   static async searchHotel(filters = {}) {
@@ -345,6 +323,22 @@ export class hotelRepository {
       paymentMethod: row.payment_method,
     }));
     return rsv;
+  }
+  static async getHotelDisponibility({ id }) {
+    console.log(id);
+    const result = await db.execute(
+      "SELECT h.id, h.photos, h.name, d.fecha_in, d.fecha_out , d.hotel_id, d.reason, d.rsv_confirm FROM hoteles h JOIN disponibility d ON d.hotel_id = h.id WHERE h.id = ?",
+      [id]
+    );
+    if (result.rows === 0)
+      return { message: "this spot doesn't have any reservations" };
+    const data = result.rows.map((row) => ({
+      ...row,
+      fechaIn: row.fecha_in,
+      fechaOut: row.fecha_out,
+      rsvConfirm: row.rsv_confirm,
+    }));
+    return data;
   }
 }
 

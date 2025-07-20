@@ -76,7 +76,6 @@ app.get("/all-users", async (req, res) => {
 app.post("/sign-up", async (req, res) => {
   try {
     const data = validateUserSchema(req.body);
-    console.log(data);
     if (!data.success) res.status(400).send(data.message);
     const { username, name, lastname, email, password, type } = data.data;
 
@@ -127,7 +126,6 @@ app.get("/logout", (req, res) => {
     sameSite: "strict",
     path: "/",
   });
-  console.log(req.session.user);
   res.status(200).send("user logout successfully");
 });
 app.post("/upload-hotel", upload.array("photos"), async (req, res) => {
@@ -155,9 +153,7 @@ app.post("/upload-hotel", upload.array("photos"), async (req, res) => {
     city,
     capacity,
   } = data.data;
-  console.log(process.env.DROPBOX_ACCESS_TOKEN);
   const photos = {};
-  console.log("Archivos recibidos:", req.files);
   for (let i = 0; i < req.files.length; i++) {
     const file = req.files[i];
     try {
@@ -200,9 +196,8 @@ app.post("/upload-hotel", upload.array("photos"), async (req, res) => {
 });
 app.get("/my-hotels", async (req, res) => {
   try {
-    console.log(req.session.user);
     const { id } = req.session.user;
-    console.log(id);
+
     const result = await hotelRepository.getUserHotels(id);
     res.status(200).send(result);
   } catch (error) {
@@ -264,7 +259,6 @@ app.get("/hoteles", async (req, res) => {
     orderBy,
     sortOrder,
   } = req.query;
-  console.log("user", req.session.user);
   let filters = {};
   if (minPrice) filters.minPrice = minPrice;
   if (maxPrice) filters.maxPrice = maxPrice;
@@ -302,7 +296,7 @@ app.get("/hoteles", async (req, res) => {
 });
 app.delete("/delete", async (req, res) => {
   const { id } = req.body;
-  console.log(id);
+
   if (isNaN(id) || parseInt(id) <= 0)
     return res.status(400).send({ message: "Invalid hotel ID" });
   try {
@@ -342,7 +336,6 @@ app.patch("/modify-hotel", async (req, res) => {
     country,
     capacity,
   } = data.data;
-  console.log(hotelId);
   try {
     await hotelRepository.patchHotel({
       hotelId,
@@ -393,7 +386,6 @@ app.post("/disponibility-hotel", async (req, res) => {
 app.patch("/disponibility-hotel", async (req, res) => {
   const { id, hotelId, fechaIn, fechaOut } = req.body;
   try {
-    console.log(req.body);
     const result = await hotelRepository.modifyDisponibility({
       hotelId,
       fechaIn,
@@ -430,7 +422,6 @@ app.post("/reservation", async (req, res) => {
       fechaOut,
       username,
     });
-    console.log(result);
     if (result.message) res.status(400).send({ message: result.message });
     const disponibility = await rsvRepository.asignDisponibilityRsv({
       hotelId,
@@ -457,10 +448,9 @@ app.get("/reservation", async (req, res) => {
     const result = await rsvRepository.getReservation(id);
     res.status(200).send(result);
   } catch (error) {
-    throw new Error(error);
-    // res
-    //   .status(404)
-    //   .send({ message: "Any reservation was found for this user" });
+    res
+      .status(404)
+      .send({ message: "Any reservation was found for this user" });
   }
 });
 app.patch("/reservation", async (req, res) => {
@@ -577,7 +567,19 @@ app.get("/hotel/rsv/payment", async (req, res) => {
     if (result.message) {
       res.status(400).send({ message: result.message });
     }
-    console.log(result);
+    res.status(200).send(result);
+  } catch (error) {
+    throw new Error(error);
+  }
+});
+app.get("/hotel-disponibility/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await hotelRepository.getHotelDisponibility({ id });
+
+    if (result.message) return res.status(200).send(result);
+
     res.status(200).send(result);
   } catch (error) {
     throw new Error(error);
